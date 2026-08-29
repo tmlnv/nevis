@@ -123,10 +123,10 @@ class ClientRepo:
         return _client(row) if row else None
 
     async def search(self, req: ClientSearchRequestDTO) -> tuple[ClientSearchHitDTO, ...]:
-        async with _acquire(self._pool) as conn, conn.transaction():
-            # search_text is long, so whole-string similarity never reaches the 0.3 default;
-            # 0.15 lets multi-word queries hit `%`, `%>` covers single words, LIKE substrings.
-            await conn.execute("SET LOCAL pg_trgm.similarity_threshold = 0.15")
+        async with _acquire(self._pool) as conn:
+            # `%` uses the GIN trigram index and compares against
+            # pg_trgm.similarity_threshold, which the initial migration sets on the
+            # database. `%>` covers single words, LIKE covers raw substrings.
             rows = await conn.fetch(
                 f"""SELECT {_CLIENT_COLUMNS},
                            GREATEST(similarity(search_text, $1),

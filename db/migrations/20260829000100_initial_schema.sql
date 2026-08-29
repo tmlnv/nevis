@@ -2,6 +2,18 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Client search depends on this: the `%` operator is the only index-usable trigram
+-- predicate, and it compares against pg_trgm.similarity_threshold. The default 0.3
+-- matches nothing here, because search_text concatenates name, email and description,
+-- which dilutes whole-string similarity. This is a precondition of the query rather
+-- than a per-call tweak, so it lives with the index it partners with instead of being
+-- re-applied by application code on every search.
+DO $$ BEGIN
+    EXECUTE format(
+        'ALTER DATABASE %I SET pg_trgm.similarity_threshold = 0.15', current_database()
+    );
+END $$;
+
 CREATE TABLE clients (
     id uuid PRIMARY KEY,
     first_name text NOT NULL,
@@ -46,6 +58,12 @@ CREATE INDEX document_chunks_embedding_idx
     ON document_chunks USING hnsw (embedding halfvec_cosine_ops);
 
 -- migrate:down
+DO $$ BEGIN
+    EXECUTE format(
+        'ALTER DATABASE %I RESET pg_trgm.similarity_threshold', current_database()
+    );
+END $$;
+
 DROP TABLE document_chunks;
 DROP TABLE documents;
 DROP TABLE clients;

@@ -145,10 +145,23 @@ The trigram query keeps the index-usable operators in `WHERE` and computes the s
 WHERE search_text % $1 OR search_text %> $1 OR search_text LIKE '%' || lower($1) || '%'
 ```
 
-`pg_trgm.similarity_threshold` is lowered to `0.15` for the search transaction
-(`SET LOCAL`, so pooled connections are unaffected). At the 0.3 default the `%` operator
-matched nothing: `search_text` concatenates name, email and description, which dilutes
-whole-string similarity.
+`pg_trgm.similarity_threshold` is lowered to `0.15` by the initial migration
+(`ALTER DATABASE ... SET`). At the 0.3 default the `%` operator matched *nothing*:
+`search_text` concatenates name, email and description, which dilutes whole-string
+similarity.
+
+This is set on the database rather than per query on purpose. `%` is the only
+index-usable trigram predicate — the explicit `similarity(a, b) > 0.15` form is a
+sequential scan, verified with `EXPLAIN` — and `%` reads that threshold, so the value is a
+*precondition of the query*, not an incidental tweak. Setting it once beside the index it
+partners with means no extra round-trip per search and no way for a future query using `%`
+to silently match nothing because someone forgot to set it.
+
+Two consequences worth knowing: it applies to new sessions only (fine here — the one-shot
+migrate service finishes before the API opens its pool), and `pg_dump --schema-only` does
+not emit `ALTER DATABASE` settings, so `db/schema.sql` does not show it. The migration
+remains the authoritative definition. Applying it also requires ownership of the database,
+which the migration user has.
 
 ### Client and document scores are not merged into one ranking
 
