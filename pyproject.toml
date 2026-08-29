@@ -1,0 +1,39 @@
+[project]
+name = "nevis"
+version = "0.1.0"
+description = "Search API across clients and their documents"
+requires-python = ">=3.13"
+dependencies = [
+    "asyncpg>=0.30",
+    "dishka>=1.4",
+    "fastapi>=0.115",
+    "granian>=1.7",
+    "httpx>=0.28",
+    "orjson>=3.10",
+    "pydantic[email]>=2.9",
+    "pydantic-settings>=2.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

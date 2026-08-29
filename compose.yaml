@@ -1,0 +1,48 @@
+name: nevis
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: nevis
+      POSTGRES_PASSWORD: nevis
+      POSTGRES_DB: nevis
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nevis -d nevis"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # One-shot job, not a long-running service: applies pending migrations and exits.
+  # The API waits for it to complete so no worker ever races to alter the schema.
+  migrate:
+    image: ghcr.io/amacneil/dbmate:2.27
+    command: ["--wait", "migrate"]
+    environment:
+      DATABASE_URL: postgres://nevis:nevis@db:5432/nevis?sslmode=disable
+    volumes:
+      - ./db:/db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://nevis:nevis@db:5432/nevis?sslmode=disable
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
