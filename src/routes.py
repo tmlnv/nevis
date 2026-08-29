@@ -4,7 +4,6 @@ import asyncpg
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaRoute
 from fastapi import APIRouter, Depends, Response
-from src.use_cases import CreateClientUseCase, CreateDocumentUseCase, SearchUseCase
 
 from src.auth import require_bearer
 from src.dto import CreateClientCommandDTO, CreateDocumentCommandDTO, SearchQueryDTO
@@ -21,6 +20,7 @@ from src.schemas import (
     SearchResultsOut,
     ValidationErrorOut,
 )
+from src.use_cases import CreateClientUseCase, CreateDocumentUseCase, SearchUseCase
 
 router = APIRouter(route_class=DishkaRoute)
 

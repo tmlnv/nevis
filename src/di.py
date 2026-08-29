@@ -3,12 +3,12 @@ from collections.abc import AsyncIterable
 import asyncpg
 import httpx
 from dishka import Provider, Scope, provide
-from src.repo import ClientRepo, DocumentRepo, create_pool
-from src.services import ClientService, DocumentService, SearchService
-from src.use_cases import CreateClientUseCase, CreateDocumentUseCase, SearchUseCase
 
 from src.ai.client import AIClient
 from src.config import Settings
+from src.repo import ClientRepo, DocumentRepo, create_pool
+from src.services import ClientService, DocumentService, SearchService
+from src.use_cases import CreateClientUseCase, CreateDocumentUseCase, SearchUseCase
 
 
 class AppProvider(Provider):
