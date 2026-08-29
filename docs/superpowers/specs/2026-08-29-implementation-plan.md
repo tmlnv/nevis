@@ -3,6 +3,16 @@
 Supersedes the build-order and layout sections of `2026-08-29-nevis-search-api-design.md`.
 Design decisions not mentioned here are kept as written in that document.
 
+## Status: implemented 2026-08-29
+
+All phases complete. Verified on a clean `docker compose down -v && up --build`:
+migrations apply via the one-shot dbmate job, the corpus seeds against the real
+OpenRouter API, both acceptance queries pass, and `uv run pytest` is 47 green.
+Three defects that live testing caught are recorded in the README's model-choice
+section: the `openrouter/free` router returning empty summaries ~33% of the time,
+a document score threshold too loose to filter noise, and the deprecated
+`ORJSONResponse`.
+
 ## Guiding constraint
 
 10–14 hours. The task PDF grades "correctness, clarity, and simplicity" and
