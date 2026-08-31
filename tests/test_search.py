@@ -47,12 +47,13 @@ async def test_many_matching_chunks_collapse_to_one_result(
 ) -> None:
     owner = await make_client()
     document = await make_document(owner["id"], "Client file", f"{CHUNK_A}\n\n{CHUNK_B}")
-    assert len(split_passages(f"Client file\n\n{CHUNK_A}\n\n{CHUNK_B}")) == 2
+    assert len(split_passages(f"{CHUNK_A}\n\n{CHUNK_B}")) == 2
 
     # Both chunks must clear the threshold, or "collapse" would be tested vacuously.
     query_vector = "[" + ",".join(map(str, fake_vector("address proof"))) + "]"
     scores = await pool.fetch(
-        "SELECT 1 - (embedding <=> $1::halfvec(2048)) AS score FROM document_chunks",
+        """SELECT 1 - (embedding <=> $1::halfvec(2048)) AS score
+           FROM document_chunks WHERE position > 0""",
         query_vector,
     )
     assert len(scores) == 2

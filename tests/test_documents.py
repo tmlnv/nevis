@@ -86,7 +86,7 @@ async def test_create_document_stores_summary_and_one_chunk_per_passage(
     assert body["title"] == title
     assert body["summary"].startswith("Summary of:")
 
-    expected = split_passages(f"{title}\n\n{content}")
+    expected = (title, *split_passages(content))
     rows = await pool.fetch(
         "SELECT position, content FROM document_chunks WHERE document_id = $1 ORDER BY position",
         body["id"],
