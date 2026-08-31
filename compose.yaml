@@ -30,9 +30,19 @@ services:
 
   api:
     build: .
-    env_file: .env
     environment:
       DATABASE_URL: postgres://nevis:nevis@db:5432/nevis?sslmode=disable
+      API_BEARER_TOKEN: ${API_BEARER_TOKEN:?set API_BEARER_TOKEN in .env}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY in .env}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-openai/text-embedding-3-large}
+      SUMMARY_BASE_URL: ${SUMMARY_BASE_URL:-}
+      SUMMARY_API_KEY: ${SUMMARY_API_KEY:-}
+      SUMMARY_MODEL: ${SUMMARY_MODEL:-google/gemini-2.5-flash-lite}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      CLIENT_SCORE_THRESHOLD: ${CLIENT_SCORE_THRESHOLD:-0.10}
+      DOCUMENT_SCORE_THRESHOLD: ${DOCUMENT_SCORE_THRESHOLD:-0.38}
+      SEARCH_RESULT_LIMIT: ${SEARCH_RESULT_LIMIT:-20}
     ports:
       - "8000:8000"
     depends_on:
