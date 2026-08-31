@@ -29,7 +29,7 @@ def settings() -> Fixture[Settings]:
 
 @pytest.fixture(autouse=True)
 def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> Fixture[None]:
-    async def _noop() -> None:
+    async def _noop(attempt: int = 0) -> None:
         return None
 
     monkeypatch.setattr(AIClient, "_backoff", staticmethod(_noop))
@@ -88,7 +88,7 @@ async def test_summarize_strips_and_returns_content(build) -> None:
         (402, "ai_provider_quota_exhausted", 503, False, 1),
         (404, "ai_provider_unavailable", 503, True, 1),
         (400, "ai_provider_rejected_request", 502, False, 1),
-        (500, "ai_provider_unavailable", 503, True, 2),
+        (500, "ai_provider_unavailable", 503, True, 3),
     ],
 )
 async def test_status_codes_map_to_documented_errors(
@@ -211,7 +211,7 @@ async def test_transport_errors_retry_once_then_report_unavailable(build) -> Non
     assert error.status == 503
     assert error.is_retryable is True
     assert error.upstream_status is None
-    assert len(seen) == 2
+    assert len(seen) == 3
 
 
 async def test_retryable_status_succeeds_on_the_second_attempt(build) -> None:
@@ -221,3 +221,28 @@ async def test_retryable_status_succeeds_on_the_second_attempt(build) -> None:
 
     assert len(result.vectors) == 1
     assert len(seen) == 2
+
+
+async def test_ok_status_with_error_envelope_is_retried_then_mapped(build) -> None:
+    """OpenRouter returns `200 {"error": {"code": 502}}` when its upstream is overloaded."""
+    overloaded = _json(200, {"error": {"message": "Service temporarily overloaded", "code": 502}})
+    ai, seen = build(_responder(overloaded, _json(200, OK_EMBEDDING)))
+
+    result = await ai.embed(["hello"])
+
+    assert len(result.vectors) == 1
+    assert len(seen) == 2
+
+
+async def test_persistent_error_envelope_reports_the_inner_status(build) -> None:
+    ai, seen = build(_responder(_json(200, {"error": {"message": "nope", "code": 502}})))
+
+    with pytest.raises(AIProviderError) as exc_info:
+        await ai.embed(["hello"])
+
+    error = exc_info.value
+    assert error.code == "ai_provider_unavailable"
+    assert error.upstream_status == 502
+    assert error.is_retryable is True
+    assert "nope" not in error.message
+    assert len(seen) == 3

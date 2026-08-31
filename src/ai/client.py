@@ -63,8 +63,23 @@ def _retry_after(response: httpx.Response) -> int | None:
     return min(int(raw), _MAX_RETRY_AFTER_SECONDS)
 
 
-def _map_status(response: httpx.Response) -> AIProviderError:
-    status = response.status_code
+def _envelope_status(response: httpx.Response) -> int | None:
+    """OpenRouter answers `200 {"error": {"code": 502, ...}}` when its upstream is
+    overloaded. Unwrapping it here is what makes the 200 retryable; treated as a plain
+    success it surfaced as a non-retryable `invalid_response` for ~25% of free-tier calls."""
+    try:
+        body = orjson.loads(response.content)
+    except orjson.JSONDecodeError:
+        return None
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict):
+        return None
+    code = error.get("code")
+    return code if isinstance(code, int) and 400 <= code <= 599 else 502
+
+
+def _map_status(response: httpx.Response, status: int | None = None) -> AIProviderError:
+    status = response.status_code if status is None else status
     if status == 401:
         return AIProviderError(
             code="ai_provider_configuration_error",
@@ -120,7 +135,11 @@ class AIClient:
         self._settings = settings
 
     async def embed(self, texts: Sequence[str]) -> EmbeddingResultDTO:
-        body = EmbeddingRequestOut(model=self._settings.embedding_model, input=list(texts))
+        body = EmbeddingRequestOut(
+            model=self._settings.embedding_model,
+            input=list(texts),
+            dimensions=EMBEDDING_DIMENSIONS,
+        )
         response = await self._post(
             self._settings.embeddings_url(), self._settings.openrouter_api_key, body
         )
@@ -162,7 +181,7 @@ class AIClient:
         payload = orjson.dumps(body.model_dump())
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
-        for is_last in (False, True):
+        for attempt, is_last in enumerate((False, False, True)):
             try:
                 response = await self._http.post(
                     url,
@@ -173,18 +192,24 @@ class AIClient:
             except httpx.TransportError as exc:
                 if is_last:
                     raise _unavailable(None) from exc
-                await self._backoff()
+                await self._backoff(attempt)
                 continue
 
             if response.status_code in _RETRY_STATUSES and not is_last:
-                await self._backoff()
+                await self._backoff(attempt)
                 continue
             if response.is_success:
-                return response
+                if (status := _envelope_status(response)) is None:
+                    return response
+                if status in _RETRY_STATUSES and not is_last:
+                    await self._backoff(attempt)
+                    continue
+                raise _map_status(response, status)
             raise _map_status(response)
 
         raise _unavailable(None)  # unreachable: the last pass always returns or raises
 
     @staticmethod
-    async def _backoff() -> None:
-        await asyncio.sleep(random.uniform(0.1, 0.4))  # noqa: S311 - jitter, not crypto
+    async def _backoff(attempt: int = 0) -> None:
+        # Overloaded free endpoints need more than jitter to recover between tries.
+        await asyncio.sleep(2**attempt * random.uniform(0.5, 1.5))  # noqa: S311 - not crypto

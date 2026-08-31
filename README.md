@@ -25,8 +25,9 @@ export TOKEN=...                       # the value of API_BEARER_TOKEN
 uv run python seed.py                  # optional: load the demo corpus
 ```
 
-An OpenRouter key is required. The free tier is sufficient; get one at
-<https://openrouter.ai/keys>.
+An OpenRouter key with credit is required — the default models are paid, though embedding
+and summarising the whole demo corpus costs a fraction of a cent. Get one at
+<https://openrouter.ai/keys>. See *Model choices* for why the free models were rejected.
 
 ## API
 
@@ -112,15 +113,9 @@ curl -s -G localhost:8000/search --data-urlencode 'q=address proof' -H "Authoriz
 [
   {
     "result_type": "document",
-    "score": 0.288,
+    "score": 0.4748,
     "matched_excerpt": "Utility bill\n\nElectricity utility bill issued by City Power for the billing period 1 March 2026 to 31 March 2026. Service address: 14 Oak Lane, Bristol ...",
     "document": { "id": "ef5c0500-...", "title": "Utility bill", "summary": "...", "...": "..." }
-  },
-  {
-    "result_type": "document",
-    "score": 0.2467,
-    "matched_excerpt": "Signed tenancy agreement\n\nAssured shorthold tenancy agreement confirming that the tenant resides at 42 Cathedral Road, Cardiff ...",
-    "document": { "id": "79855a07-...", "title": "Signed tenancy agreement", "...": "..." }
   }
 ]
 ```
@@ -172,10 +167,19 @@ source is filtered by its own threshold and sorted within itself, and clients ar
 before documents. `score` communicates rank within a group; it is not a calibrated
 probability.
 
-Thresholds were calibrated against the seeded corpus rather than guessed. Across eight
-queries, clearly-unrelated documents scored at most **0.174** while genuine matches
-started at **0.233**, so the document floor is **0.20**. `banana bread recipe` correctly
-returns nothing.
+Thresholds were calibrated by sweeping, not guessed. Against a 70-document corpus and 18
+labelled queries, the document floor of **0.40** is the F1 peak (**0.79**) and the point
+where precision reaches **1.000** — every document returned across all 16 answerable
+queries is a labelled match, each at rank 1 — while `banana bread recipe` returns only the
+banana bread recipe and `best pizza in Naples` returns nothing.
+
+Dropping to 0.30 buys recall the corpus does not justify: the 0.30–0.40 band recovers some
+genuine matches (`Articles of association` at 0.371) but admits a bicycle repair invoice
+for `how much do you charge` and a VAT return for `tax owed on selling shares`. The cost of
+holding the line at 0.40 is that a weakly-phrased query can return nothing — `I am unhappy
+with the service` peaks at 0.296 against `Complaints procedure` and is dropped. Returning
+nothing is the better failure here: a caller can rephrase, but cannot tell junk from a
+match.
 
 ### Search degrades instead of failing
 
@@ -186,8 +190,8 @@ signal goes in a header. Document *creation* behaves the opposite way — a prov
 failure there is a hard error, because storing a document without its embedding would
 leave it permanently unsearchable.
 
-Query embeddings are cached in-process (bounded LRU, 256 entries), so repeated searches
-do not spend free-tier quota.
+Query embeddings are cached in-process (bounded LRU, 256 entries), so a repeated search
+costs nothing.
 
 ### Chunking
 
@@ -200,31 +204,50 @@ several result slots.
 
 ### Model choices, and why they are pinned
 
-Both were selected by measurement, not by reputation.
+Both were selected by measurement, not by reputation. Seven embedding models were ranked
+over the same 70-document corpus and 18 labelled queries:
 
-**Embeddings — `nvidia/nemotron-3-embed-1b:free`.** The obvious free candidate,
-`liquid/lfm-2.5-embedding-350m:free`, *fails the assignment's own example*: for
-`address proof` it ranks the literal string `Utility bill` fifth of six, below a banana
-bread recipe. Adding `query:`/`passage:` or instruction prefixes made it worse. Nemotron
-ranks both utility-bill documents above every unrelated one.
+| model | nDCG@10 | top-1 correct |
+| --- | --- | --- |
+| **`openai/text-embedding-3-large`** | **0.961** | **16/16** |
+| `openai/text-embedding-3-small` | 0.954 | 15/15 |
+| `google/gemini-embedding-001` | 0.941 | 14/15 |
+| `nvidia/nemotron-3-embed-1b:free` | 0.908 | 12/15 |
+| `liquid/lfm-2.5-embedding-350m:free` | 0.906 | 15/15 |
+| `qwen/qwen3-embedding-8b` | 0.873 | 13/15 |
+| `baai/bge-m3` | 0.861 | 13/15 |
 
-**Summaries — `nvidia/nemotron-3-super-120b-a12b:free`, pinned deliberately.**
-`openrouter/free` is a *router* that picks an arbitrary free model per call. Measured over
-six calls it selected a content-safety model and a code model, and returned an empty
-message 33% of the time: reasoning models spent the whole token budget on reasoning and
-stopped at `finish_reason: "length"` before emitting content. `max_tokens` is 400 for
-headroom.
+**Embeddings — `openai/text-embedding-3-large`.** The free candidates rank *acceptably*
+but score into a narrow band: Nemotron compresses everything into 0.06–0.36, so no cutoff
+separates matches from topical noise — its best achievable F1 is 0.71 against 0.79 here.
+Embedding all 70 documents costs well under a cent.
 
-**`input_type` is not used.** OpenRouter accepts `input_type: "search_query"` /
+**Summaries — `google/gemini-2.5-flash-lite`.** Chosen for reliability, not prose.
+`openrouter/free` is a *router* that picks an arbitrary free model per call; measured over
+six calls it selected a content-safety model and a code model and returned an empty
+message 33% of the time. Pinning to a free NVIDIA endpoint was not enough either — it
+returned `Service temporarily overloaded` on **30% of calls** (14/20), against 10/10 and
+five times faster for `gemini-2.5-flash-lite`. Seeding the full corpus now completes
+70/70 on the first attempt. `max_tokens` is 400 for headroom.
+
+**`dimensions` is sent; `input_type` is not.** `dimensions: 2048` is requested on every
+embedding call so the request can never disagree with the `halfvec(2048)` column, and
+because Matryoshka truncation is free: measured nDCG@10 is 0.957 at the model's native
+3072 dimensions and 0.961 at 2048. OpenRouter also accepts `input_type: "search_query"` /
 `"search_document"` and silently ignores it — a garbage value returns `200`, and the same
 text embedded both ways yields byte-identical vectors (cosine `1.000000`). Queries and
 documents are therefore embedded identically.
 
+**Provider errors can arrive as `200`.** OpenRouter answers
+`200 {"error": {"message": "Upstream error from ...", "code": 502}}` when its upstream is
+overloaded. The adapter unwraps that envelope and feeds the inner status into the same
+retry and mapping path as a real HTTP status; treated as a plain success it surfaced as a
+non-retryable `invalid_response` and lost roughly a quarter of all ingestions.
+
 ### `halfvec`, not `vector`
 
-Nemotron returns 2048 dimensions and will not reduce them (`dimensions must be one of
-2048`). pgvector caps HNSW indexes on `vector` at 2000 dimensions, so a `vector(2048)`
-column cannot be indexed at all. Chunks are stored as `halfvec(2048)` — two bytes per
+Embeddings are requested at 2048 dimensions. pgvector caps HNSW indexes on `vector` at
+2000 dimensions, so a `vector(2048)` column cannot be indexed at all. Chunks are stored as `halfvec(2048)` — two bytes per
 component instead of four — and indexed with `halfvec_cosine_ops`. Half precision does
 not measurably affect cosine ranking at this scale.
 
@@ -233,10 +256,12 @@ because only the former can use the HNSW index.
 
 ### Privacy
 
-The free OpenRouter embedding endpoints state that successful requests and embeddings may
-be retained and used for training. **The demo uses synthetic data only.** A real
-deployment must move to a zero-data-retention endpoint, a provider covered by a data
-processing agreement, or local inference before accepting client documents.
+Document text and the resulting embeddings leave the process and reach a third-party
+provider. **The demo uses synthetic data only.** A real deployment must confirm the
+retention terms of the specific endpoint in use — free OpenRouter endpoints in particular
+state that requests may be retained and used for training — and move to a zero-data-
+retention endpoint, a provider covered by a data processing agreement, or local inference
+before accepting client documents.
 
 ## Architecture
 

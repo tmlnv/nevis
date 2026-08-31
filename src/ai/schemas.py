@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict
 class EmbeddingRequestOut(BaseModel):
     model: str
     input: list[str]
+    # Matryoshka truncation: asking for exactly the column width means the request
+    # and the halfvec column can never disagree. Models that do not support it
+    # ignore the field, and the response length check below still catches a mismatch.
+    dimensions: int
 
 
 class EmbeddingDataIn(BaseModel):
