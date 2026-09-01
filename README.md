@@ -113,16 +113,16 @@ curl -s -G localhost:8000/search --data-urlencode 'q=address proof' -H "Authoriz
 [
   {
     "result_type": "document",
-    "score": 0.4748,
-    "matched_excerpt": "Utility bill\n\nElectricity utility bill issued by City Power for the billing period 1 March 2026 to 31 March 2026. Service address: 14 Oak Lane, Bristol ...",
+    "score": 0.3917,
+    "matched_excerpt": "Utility bill",
     "document": { "id": "ef5c0500-...", "title": "Utility bill", "summary": "...", "...": "..." }
   }
 ]
 ```
 
 The response is a bare top-level array, as specified. Each element is discriminated by
-`result_type`. `matched_excerpt` shows the passage that actually matched, so a caller can
-see *why* a document was returned.
+`result_type`. `matched_excerpt` shows the title or body passage that actually matched, so
+a caller can see *why* a document was returned.
 
 ## Design decisions
 
@@ -167,19 +167,12 @@ source is filtered by its own threshold and sorted within itself, and clients ar
 before documents. `score` communicates rank within a group; it is not a calibrated
 probability.
 
-Thresholds were calibrated by sweeping, not guessed. Against a 70-document corpus and 18
-labelled queries, the document floor of **0.40** is the F1 peak (**0.79**) and the point
-where precision reaches **1.000** — every document returned across all 16 answerable
-queries is a labelled match, each at rank 1 — while `banana bread recipe` returns only the
-banana bread recipe and `best pizza in Naples` returns nothing.
-
-Dropping to 0.30 buys recall the corpus does not justify: the 0.30–0.40 band recovers some
-genuine matches (`Articles of association` at 0.371) but admits a bicycle repair invoice
-for `how much do you charge` and a VAT return for `tax owed on selling shares`. The cost of
-holding the line at 0.40 is that a weakly-phrased query can return nothing — `I am unhappy
-with the service` peaks at 0.296 against `Complaints procedure` and is dropped. Returning
-nothing is the better failure here: a caller can rephrase, but cannot tell junk from a
-match.
+An initial sweep over 70 documents and 18 labelled queries put the body-passage F1 peak at
+0.40. A real version of the assignment's required example exposed a representation flaw:
+`Utility Bill` plus generic billing text scored only 0.211 for `address proof`, while the
+title alone scored 0.392. Titles are therefore embedded independently and the document
+floor is **0.38**, leaving a small margin around that measured acceptance case without
+dropping to the noisy 0.30 band.
 
 ### Search degrades instead of failing
 
@@ -195,10 +188,11 @@ costs nothing.
 
 ### Chunking
 
-Documents are split on paragraph boundaries into ~1200-character passages with ~150
+The title is embedded as its own chunk so its signal cannot be diluted by unrelated body
+text. The body is split on paragraph boundaries into ~1200-character passages with ~150
 characters of overlap, and each passage is embedded separately. The chosen model has a
-32k-token context, so chunking is *not* needed to fit the input — it earns its place by
-producing `matched_excerpt` and by keeping precision on long documents. Chunk hits are
+32k-token context, so body chunking is *not* needed to fit the input — it earns its place
+by producing `matched_excerpt` and by keeping precision on long documents. Chunk hits are
 grouped by document, keeping the best-scoring chunk, so one long document cannot occupy
 several result slots.
 

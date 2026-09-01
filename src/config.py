@@ -20,11 +20,8 @@ class Settings(BaseSettings):
 
     ai_timeout_seconds: float = 60.0
 
-    # Calibrated by sweeping a 70-document corpus and 18 labelled queries (see README).
-    # 0.40 is the F1 peak for this model and the point where precision reaches 1.0
-    # while both nonsense queries still return nothing.
     client_score_threshold: float = 0.10
-    document_score_threshold: float = 0.40
+    document_score_threshold: float = 0.38
     search_result_limit: int = 20
 
     def summary_url(self) -> str:

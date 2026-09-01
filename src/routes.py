@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import UUID
 
 import asyncpg
@@ -25,7 +26,10 @@ from src.use_cases import CreateClientUseCase, CreateDocumentUseCase, SearchUseC
 router = APIRouter(route_class=DishkaRoute)
 
 _AUTH = [Depends(require_bearer)]
-_ERRORS = {401: {"model": ErrorOut}, 422: {"model": ValidationErrorOut}}
+_ERRORS: dict[int | str, dict[str, Any]] = {
+    401: {"model": ErrorOut},
+    422: {"model": ValidationErrorOut},
+}
 _AI_ERRORS = {**_ERRORS, 502: {"model": AIProviderErrorOut}, 503: {"model": AIProviderErrorOut}}
 
 

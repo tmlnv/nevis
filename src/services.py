@@ -104,7 +104,7 @@ class DocumentService:
         if await self._clients.get(cmd.client_id) is None:
             raise ClientNotFoundError
 
-        passages = split_passages(f"{cmd.title}\n\n{cmd.content}")
+        passages = (cmd.title, *split_passages(cmd.content))
         # Both AI calls finish before the insert, so a provider failure persists nothing.
         embeddings = await self._ai.embed(passages)
         summary = await self._ai.summarize(cmd.content)

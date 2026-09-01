@@ -6,6 +6,7 @@ from src.config import Settings
 from src.errors import AIProviderError
 from src.services import split_passages
 from tests.conftest import FakeAIClient, fake_vector
+from tests.custom_types import Factory, Fixture
 
 # The fake embedder scores by word overlap, so these land at roughly 1.0, 0.8 and 0.0
 # against "address proof" whatever the configured thresholds are.
@@ -20,7 +21,10 @@ CHUNK_B = "betamarker " + "address proof " * 55
 
 
 async def test_relevant_documents_rank_above_unrelated_ones(
-    client: httpx.AsyncClient, auth_headers: dict[str, str], make_client, make_document
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
+    make_document: Fixture[Factory],
 ) -> None:
     owner = await make_client()
     strong = await make_document(owner["id"], "Address proof", RELEVANT)
@@ -38,21 +42,22 @@ async def test_relevant_documents_rank_above_unrelated_ones(
 
 
 async def test_many_matching_chunks_collapse_to_one_result(
-    client: httpx.AsyncClient,
-    auth_headers: dict[str, str],
-    pool: asyncpg.Pool,
-    settings: Settings,
-    make_client,
-    make_document,
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    pool: Fixture[asyncpg.Pool],
+    settings: Fixture[Settings],
+    make_client: Fixture[Factory],
+    make_document: Fixture[Factory],
 ) -> None:
     owner = await make_client()
     document = await make_document(owner["id"], "Client file", f"{CHUNK_A}\n\n{CHUNK_B}")
-    assert len(split_passages(f"Client file\n\n{CHUNK_A}\n\n{CHUNK_B}")) == 2
+    assert len(split_passages(f"{CHUNK_A}\n\n{CHUNK_B}")) == 2
 
     # Both chunks must clear the threshold, or "collapse" would be tested vacuously.
     query_vector = "[" + ",".join(map(str, fake_vector("address proof"))) + "]"
     scores = await pool.fetch(
-        "SELECT 1 - (embedding <=> $1::halfvec(2048)) AS score FROM document_chunks",
+        """SELECT 1 - (embedding <=> $1::halfvec(2048)) AS score
+           FROM document_chunks WHERE position > 0""",
         query_vector,
     )
     assert len(scores) == 2
@@ -67,7 +72,10 @@ async def test_many_matching_chunks_collapse_to_one_result(
 
 
 async def test_clients_and_documents_share_one_flat_array(
-    client: httpx.AsyncClient, auth_headers: dict[str, str], make_client, make_document
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
+    make_document: Fixture[Factory],
 ) -> None:
     owner = await make_client(description="Requires an address proof for onboarding.")
     await make_document(owner["id"], "Address proof", RELEVANT)
@@ -85,7 +93,10 @@ async def test_clients_and_documents_share_one_flat_array(
 
 @pytest.mark.settings(search_result_limit=3)
 async def test_total_results_are_capped_at_the_configured_limit(
-    client: httpx.AsyncClient, auth_headers: dict[str, str], make_client, make_document
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
+    make_document: Fixture[Factory],
 ) -> None:
     for i in range(2):
         owner = await make_client(
@@ -102,11 +113,11 @@ async def test_total_results_are_capped_at_the_configured_limit(
 
 
 async def test_search_degrades_to_client_results_when_embeddings_fail(
-    client: httpx.AsyncClient,
-    auth_headers: dict[str, str],
-    make_client,
-    make_document,
-    fake_ai: FakeAIClient,
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
+    make_document: Fixture[Factory],
+    fake_ai: Fixture[FakeAIClient],
 ) -> None:
     owner = await make_client(description="Requires an address proof for onboarding.")
     await make_document(owner["id"], "Address proof", RELEVANT)
@@ -129,7 +140,7 @@ async def test_search_degrades_to_client_results_when_embeddings_fail(
 
 @pytest.mark.parametrize("q", ["", "   ", "\t\n"])
 async def test_blank_query_is_rejected(
-    client: httpx.AsyncClient, auth_headers: dict[str, str], q: str
+    client: Fixture[httpx.AsyncClient], auth_headers: Fixture[dict[str, str]], q: str
 ) -> None:
     response = await client.get("/search", params={"q": q}, headers=auth_headers)
 

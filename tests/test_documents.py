@@ -6,6 +6,7 @@ from src.errors import AIProviderError
 from src.schemas import MAX_CONTENT_CHARS
 from src.services import MAX_PASSAGE_CHARS, PASSAGE_OVERLAP_CHARS, split_passages
 from tests.conftest import FakeAIClient
+from tests.custom_types import Factory, Fixture
 
 _STEP = MAX_PASSAGE_CHARS - PASSAGE_OVERLAP_CHARS
 
@@ -64,11 +65,11 @@ def test_buffered_text_is_flushed_before_an_oversized_paragraph() -> None:
 
 
 async def test_create_document_stores_summary_and_one_chunk_per_passage(
-    client: httpx.AsyncClient,
-    auth_headers: dict[str, str],
-    pool: asyncpg.Pool,
-    make_client,
-    fake_ai: FakeAIClient,
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    pool: Fixture[asyncpg.Pool],
+    make_client: Fixture[Factory],
+    fake_ai: Fixture[FakeAIClient],
 ) -> None:
     owner = await make_client()
     title = "Address proof"
@@ -86,7 +87,7 @@ async def test_create_document_stores_summary_and_one_chunk_per_passage(
     assert body["title"] == title
     assert body["summary"].startswith("Summary of:")
 
-    expected = split_passages(f"{title}\n\n{content}")
+    expected = (title, *split_passages(content))
     rows = await pool.fetch(
         "SELECT position, content FROM document_chunks WHERE document_id = $1 ORDER BY position",
         body["id"],
@@ -103,7 +104,9 @@ async def test_create_document_stores_summary_and_one_chunk_per_passage(
 
 
 async def test_unknown_client_returns_404_without_touching_the_ai_gateway(
-    client: httpx.AsyncClient, auth_headers: dict[str, str], fake_ai: FakeAIClient
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    fake_ai: Fixture[FakeAIClient],
 ) -> None:
     response = await client.post(
         "/clients/00000000-0000-0000-0000-000000000000/documents",
@@ -118,11 +121,11 @@ async def test_unknown_client_returns_404_without_touching_the_ai_gateway(
 
 @pytest.mark.parametrize("failing_call", ["embed", "summarize"])
 async def test_provider_failure_is_attributed_and_persists_nothing(
-    client: httpx.AsyncClient,
-    auth_headers: dict[str, str],
-    pool: asyncpg.Pool,
-    make_client,
-    fake_ai: FakeAIClient,
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    pool: Fixture[asyncpg.Pool],
+    make_client: Fixture[Factory],
+    fake_ai: Fixture[FakeAIClient],
     failing_call: str,
 ) -> None:
     owner = await make_client()
@@ -157,7 +160,10 @@ async def test_provider_failure_is_attributed_and_persists_nothing(
 
 
 async def test_content_over_the_cap_is_rejected(
-    client: httpx.AsyncClient, auth_headers: dict[str, str], make_client, fake_ai: FakeAIClient
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
+    fake_ai: Fixture[FakeAIClient],
 ) -> None:
     owner = await make_client()
 

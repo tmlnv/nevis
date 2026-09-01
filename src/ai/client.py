@@ -1,4 +1,4 @@
-"""OpenRouter adapter. Everything upstream is untrusted: bodies are validated, never leaked."""
+"""OpenRouter adapter."""
 
 import asyncio
 import math
