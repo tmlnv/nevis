@@ -14,6 +14,8 @@ from tests.custom_types import Build, Fixture, JsonValue
 VECTOR = [0.01] * EMBEDDING_DIMENSIONS
 OK_EMBEDDING = {"model": "test-model", "data": [{"index": 0, "embedding": VECTOR}]}
 OK_SUMMARY = {"model": "test-model", "choices": [{"message": {"content": " done "}}]}
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(

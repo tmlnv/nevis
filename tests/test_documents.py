@@ -4,7 +4,13 @@ import pytest
 
 from src.errors import AIProviderError
 from src.schemas import MAX_CONTENT_CHARS
-from src.services import MAX_PASSAGE_CHARS, PASSAGE_OVERLAP_CHARS, split_passages
+from src.services import (
+    MAX_EXCERPT_CHARS,
+    MAX_PASSAGE_CHARS,
+    PASSAGE_OVERLAP_CHARS,
+    _excerpt,
+    split_passages,
+)
 from tests.conftest import FakeAIClient
 from tests.custom_types import Factory, Fixture
 
@@ -176,3 +182,25 @@ async def test_content_over_the_cap_is_rejected(
     assert response.status_code == 422
     assert response.json()["code"] == "validation_error"
     assert fake_ai.calls == 0
+
+
+# --- _excerpt ---------------------------------------------------------------
+
+
+def test_short_content_is_returned_whole() -> None:
+    assert _excerpt("Short enough.") == "Short enough."
+
+
+def test_long_content_is_cut_at_a_word_boundary() -> None:
+    excerpt = _excerpt("word " * 200)
+
+    assert excerpt.endswith("…")
+    assert len(excerpt) <= MAX_EXCERPT_CHARS + 1
+    assert " …" not in excerpt
+    assert ("word " * 200).startswith(excerpt[:-1])
+
+
+def test_spaceless_content_is_cut_at_the_hard_limit() -> None:
+    excerpt = _excerpt(_digits(1000))
+
+    assert excerpt == _digits(1000)[:MAX_EXCERPT_CHARS] + "…"

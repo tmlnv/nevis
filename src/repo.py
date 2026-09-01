@@ -176,7 +176,11 @@ class DocumentRepo:
     async def search_chunks(
         self, req: DocumentSearchRequestDTO
     ) -> tuple[DocumentChunkSearchHitDTO, ...]:
-        async with _acquire(self._pool) as conn:
+        async with _acquire(self._pool) as conn, conn.transaction():
+            # hnsw returns at most ef_search rows.
+            await conn.execute(
+                "SELECT set_config('hnsw.ef_search', $1, true)", str(max(req.limit, 40))
+            )
             rows = await conn.fetch(
                 f"""SELECT {_JOINED_DOCUMENT_COLUMNS},
                            ch.content AS chunk_content,

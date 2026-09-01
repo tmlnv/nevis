@@ -3,8 +3,10 @@ import httpx
 import pytest
 
 from src.config import Settings
+from src.dto import SearchQueryDTO
 from src.errors import AIProviderError
-from src.services import split_passages
+from src.repo import ClientRepo, DocumentRepo
+from src.services import EMBEDDING_CACHE_SIZE, SearchService, split_passages
 from tests.conftest import FakeAIClient, fake_vector
 from tests.custom_types import Factory, Fixture
 
@@ -146,3 +148,79 @@ async def test_blank_query_is_rejected(
 
     assert response.status_code == 422
     assert response.json()["code"] == "validation_error"
+
+
+@pytest.mark.settings(search_result_limit=2)
+async def test_a_many_chunk_document_does_not_starve_other_documents(
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
+    make_document: Fixture[Factory],
+) -> None:
+    owner = await make_client(email="chunky@example.org")
+    # Five perfect-match chunks: with a limit-sized pool they fill it and hide `weaker`.
+    crowded = await make_document(owner["id"], "Address proof", "\n\n".join([RELEVANT] * 5))
+    weaker = await make_document(owner["id"], "Onboarding note", PARTLY_RELEVANT)
+
+    response = await client.get("/search", params={"q": "address proof"}, headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    ids = [r["document"]["id"] for r in response.json() if r["result_type"] == "document"]
+    assert ids == [crowded["id"], weaker["id"]]
+
+
+async def test_a_repeated_query_is_embedded_once(
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
+    fake_ai: Fixture[FakeAIClient],
+) -> None:
+    await make_client(description="Requires an address proof for onboarding.")
+
+    for q in ("address proof", "  address   proof "):
+        response = await client.get("/search", params={"q": q}, headers=auth_headers)
+        assert response.status_code == 200, response.text
+
+    assert fake_ai.embed_calls == 1  # the second differs only in normalised whitespace
+
+
+async def test_the_embedding_cache_evicts_the_least_recently_used_query(
+    pool: Fixture[asyncpg.Pool],
+    settings: Fixture[Settings],
+    fake_ai: Fixture[FakeAIClient],
+) -> None:
+    service = SearchService(ClientRepo(pool), DocumentRepo(pool), fake_ai, settings)  # type: ignore[arg-type]
+
+    async def search(q: str) -> None:
+        await service.search(SearchQueryDTO(q=q))
+
+    await search("oldest")
+    for i in range(EMBEDDING_CACHE_SIZE - 1):
+        await search(f"filler {i}")
+    assert fake_ai.embed_calls == EMBEDDING_CACHE_SIZE
+
+    await search("oldest")  # cached, and now most recently used
+    assert fake_ai.embed_calls == EMBEDDING_CACHE_SIZE
+
+    await search("one too many")  # evicts "filler 0"
+    await search("oldest")
+    assert fake_ai.embed_calls == EMBEDDING_CACHE_SIZE + 1
+
+    await search("filler 0")
+    assert fake_ai.embed_calls == EMBEDDING_CACHE_SIZE + 2
+
+
+async def test_a_title_only_match_finds_the_document(
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
+    make_document: Fixture[Factory],
+) -> None:
+    owner = await make_client()
+    document = await make_document(owner["id"], "Passport photocopy", UNRELATED)
+
+    response = await client.get("/search", params={"q": "passport photocopy"}, headers=auth_headers)
+
+    hits = [r for r in response.json() if r["result_type"] == "document"]
+    assert [h["document"]["id"] for h in hits] == [document["id"]]
+    assert hits[0]["matched_excerpt"] == "Passport photocopy"

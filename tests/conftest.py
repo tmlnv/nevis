@@ -250,7 +250,7 @@ async def _client_for(settings: Settings, ai: FakeAIClient) -> AsyncIterator[htt
     # setup_dishka() already installed the middleware; swapping the container is all
     # that is left, and it is exactly what setup_dishka's last line does.
     app.state.dishka_container = container
-    transport = httpx.ASGITransport(app=app)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
         try:
             yield http
@@ -265,6 +265,7 @@ def auth_headers() -> dict[str, str]:
 
 
 # --- helpers ----------------------------------------------------------------
+
 
 @pytest.fixture
 def make_client(client: httpx.AsyncClient, auth_headers: dict[str, str]) -> Factory:

@@ -34,6 +34,7 @@ MAX_PASSAGE_CHARS = 1200
 PASSAGE_OVERLAP_CHARS = 150
 MAX_EXCERPT_CHARS = 300
 EMBEDDING_CACHE_SIZE = 256
+CHUNK_CANDIDATE_FACTOR = 5
 
 _PARAGRAPH = re.compile(r"\n[ \t]*\n")
 _BY_SCORE = attrgetter("score")
@@ -166,8 +167,10 @@ class SearchService:
     async def _search_documents(
         self, embedding: Vector, limit: int
     ) -> tuple[DocumentSearchHitDTO, ...]:
+        # Wider than the limit: chunks collapse per document, so a many-chunk document
+        # would starve the rest.
         hits = await self._documents.search_chunks(
-            DocumentSearchRequestDTO(embedding=embedding, limit=limit)
+            DocumentSearchRequestDTO(embedding=embedding, limit=limit * CHUNK_CANDIDATE_FACTOR)
         )
         best: dict[UUID, DocumentChunkSearchHitDTO] = {}
         for hit in hits:
