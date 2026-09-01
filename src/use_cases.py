@@ -1,7 +1,6 @@
 """One call in, one call out. Routes depend on these, never on services directly."""
 
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
 
 from src.dto import (
     ClientResultDTO,
@@ -16,11 +15,8 @@ from src.services import ClientService, DocumentService, SearchService
 type Message = CreateClientCommandDTO | CreateDocumentCommandDTO | SearchQueryDTO
 type Result = ClientResultDTO | DocumentResultDTO | SearchResultDTO
 
-MessageT = TypeVar("MessageT", bound=Message)
-ResultT = TypeVar("ResultT", bound=Result)
 
-
-class UseCase(ABC, Generic[MessageT, ResultT]):  # noqa: UP046  # named TypeVars are reused below
+class UseCase[MessageT: Message, ResultT: Result](ABC):
     @abstractmethod
     async def __call__(self, message: MessageT) -> ResultT: ...
 

@@ -20,8 +20,6 @@ class Settings(BaseSettings):
 
     ai_timeout_seconds: float = 60.0
 
-    # Title-only embeddings keep short, meaningful titles from being diluted by body text.
-    # The task's "Utility Bill" title scores 0.392 for "address proof" with this model.
     client_score_threshold: float = 0.10
     document_score_threshold: float = 0.38
     search_result_limit: int = 20
