@@ -2,10 +2,13 @@ import asyncpg
 import httpx
 
 from tests.conftest import TOKEN
+from tests.custom_types import Factory, Fixture
 
 
 async def test_create_client_persists_normalised_data(
-    client: httpx.AsyncClient, auth_headers: dict[str, str], pool: asyncpg.Pool
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    pool: Fixture[asyncpg.Pool],
 ) -> None:
     response = await client.post(
         "/clients",
@@ -33,7 +36,7 @@ async def test_create_client_persists_normalised_data(
 
 
 async def test_invalid_email_returns_validation_error(
-    client: httpx.AsyncClient, auth_headers: dict[str, str]
+    client: Fixture[httpx.AsyncClient], auth_headers: Fixture[dict[str, str]]
 ) -> None:
     response = await client.post(
         "/clients",
@@ -49,7 +52,7 @@ async def test_invalid_email_returns_validation_error(
 
 
 async def test_blank_name_returns_validation_error(
-    client: httpx.AsyncClient, auth_headers: dict[str, str]
+    client: Fixture[httpx.AsyncClient], auth_headers: Fixture[dict[str, str]]
 ) -> None:
     response = await client.post(
         "/clients",
@@ -62,7 +65,7 @@ async def test_blank_name_returns_validation_error(
 
 
 async def test_missing_token_is_rejected_before_database_work(
-    client_without_db: httpx.AsyncClient,
+    client_without_db: Fixture[httpx.AsyncClient],
 ) -> None:
     response = await client_without_db.post(
         "/clients", json={"first_name": "John", "last_name": "Doe", "email": "a@b.com"}
@@ -74,7 +77,7 @@ async def test_missing_token_is_rejected_before_database_work(
 
 
 async def test_wrong_token_is_rejected_before_database_work(
-    client_without_db: httpx.AsyncClient,
+    client_without_db: Fixture[httpx.AsyncClient],
 ) -> None:
     response = await client_without_db.post(
         "/clients",
@@ -86,12 +89,14 @@ async def test_wrong_token_is_rejected_before_database_work(
     assert response.json()["code"] == "unauthorized"
 
 
-async def test_search_rejects_missing_token(client_without_db: httpx.AsyncClient) -> None:
+async def test_search_rejects_missing_token(client_without_db: Fixture[httpx.AsyncClient]) -> None:
     assert (await client_without_db.get("/search", params={"q": "x"})).status_code == 401
 
 
 async def test_search_finds_client_by_company_domain(
-    client: httpx.AsyncClient, auth_headers: dict[str, str], make_client
+    client: Fixture[httpx.AsyncClient],
+    auth_headers: Fixture[dict[str, str]],
+    make_client: Fixture[Factory],
 ) -> None:
     """Acceptance criterion: `NevisWealth` finds john.doe@neviswealth.com."""
     target = await make_client(email="john.doe@neviswealth.com")

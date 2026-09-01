@@ -9,9 +9,8 @@ import socket
 import subprocess
 import time
 import zlib
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
-from typing import Annotated, TypeVar
 
 import asyncpg
 import httpx
@@ -24,9 +23,7 @@ from src.di import AppProvider, RequestProvider
 from src.dto import EmbeddingResultDTO, SummaryResultDTO, Vector
 from src.errors import AIProviderError
 from src.main import create_app
-
-T = TypeVar("T")
-Fixture = Annotated[T, pytest.fixture]
+from tests.custom_types import Factory, JsonValue
 
 TOKEN = "test-bearer-token"
 ROOT = Path(__file__).resolve().parent.parent
@@ -137,7 +134,7 @@ async def _apply_migrations(dsn: str, sql: str) -> None:
 
 
 @pytest.fixture(scope="session")
-def pg_dsn(request: pytest.FixtureRequest) -> Fixture[str]:
+def pg_dsn(request: pytest.FixtureRequest) -> str:
     if dsn := os.environ.get("TEST_DATABASE_URL"):
         asyncio.run(_apply_migrations(dsn, _migration_sql()))
         return dsn
@@ -186,7 +183,7 @@ def pg_dsn(request: pytest.FixtureRequest) -> Fixture[str]:
 
 
 @pytest.fixture
-async def pool(pg_dsn: str) -> Fixture[asyncpg.Pool]:
+async def pool(pg_dsn: str) -> AsyncIterator[asyncpg.Pool]:
     pool = await asyncpg.create_pool(pg_dsn, min_size=1, max_size=3)
     try:
         yield pool
@@ -195,7 +192,7 @@ async def pool(pg_dsn: str) -> Fixture[asyncpg.Pool]:
 
 
 @pytest.fixture(autouse=True)
-async def _clean_tables(pool: asyncpg.Pool) -> Fixture[None]:
+async def _clean_tables(pool: asyncpg.Pool) -> AsyncIterator[None]:
     await pool.execute(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE")
     yield
 
@@ -204,13 +201,13 @@ async def _clean_tables(pool: asyncpg.Pool) -> Fixture[None]:
 
 
 @pytest.fixture
-def settings_overrides(request: pytest.FixtureRequest) -> Fixture[dict[str, object]]:
+def settings_overrides(request: pytest.FixtureRequest) -> dict[str, JsonValue]:
     marker = request.node.get_closest_marker("settings")
     return dict(marker.kwargs) if marker else {}
 
 
 @pytest.fixture
-def settings(pg_dsn: str, settings_overrides: dict[str, object]) -> Fixture[Settings]:
+def settings(pg_dsn: str, settings_overrides: dict[str, JsonValue]) -> Settings:
     # _env_file=None: the suite must not inherit a developer's tuned .env.
     return Settings(
         _env_file=None,
@@ -222,18 +219,18 @@ def settings(pg_dsn: str, settings_overrides: dict[str, object]) -> Fixture[Sett
 
 
 @pytest.fixture
-def fake_ai() -> Fixture[FakeAIClient]:
+def fake_ai() -> FakeAIClient:
     return FakeAIClient()
 
 
 @pytest.fixture
-async def client(settings: Settings, fake_ai: FakeAIClient) -> Fixture[httpx.AsyncClient]:
+async def client(settings: Settings, fake_ai: FakeAIClient) -> AsyncIterator[httpx.AsyncClient]:
     async for c in _client_for(settings, fake_ai):
         yield c
 
 
 @pytest.fixture
-async def client_without_db(fake_ai: FakeAIClient) -> Fixture[httpx.AsyncClient]:
+async def client_without_db(fake_ai: FakeAIClient) -> AsyncIterator[httpx.AsyncClient]:
     """Same app, but the DSN points nowhere: any database work fails loudly."""
     broken = Settings(
         _env_file=None,
@@ -263,18 +260,15 @@ async def _client_for(settings: Settings, ai: FakeAIClient) -> AsyncIterator[htt
 
 
 @pytest.fixture
-def auth_headers() -> Fixture[dict[str, str]]:
+def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
 
 
 # --- helpers ----------------------------------------------------------------
 
-type Factory = Callable[..., Awaitable[dict]]
-
-
 @pytest.fixture
-def make_client(client: httpx.AsyncClient, auth_headers: dict[str, str]) -> Fixture[Factory]:
-    async def _make(**overrides: object) -> dict:
+def make_client(client: httpx.AsyncClient, auth_headers: dict[str, str]) -> Factory:
+    async def _make(**overrides: JsonValue) -> dict[str, JsonValue]:
         body = {
             "first_name": "John",
             "last_name": "Doe",
@@ -290,8 +284,8 @@ def make_client(client: httpx.AsyncClient, auth_headers: dict[str, str]) -> Fixt
 
 
 @pytest.fixture
-def make_document(client: httpx.AsyncClient, auth_headers: dict[str, str]) -> Fixture[Factory]:
-    async def _make(client_id: str, title: str, content: str) -> dict:
+def make_document(client: httpx.AsyncClient, auth_headers: dict[str, str]) -> Factory:
+    async def _make(client_id: str, title: str, content: str) -> dict[str, JsonValue]:
         response = await client.post(
             f"/clients/{client_id}/documents",
             json={"title": title, "content": content},
