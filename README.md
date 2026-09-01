@@ -27,7 +27,7 @@ uv run python seed.py                  # optional: load the demo corpus
 
 An OpenRouter key with credit is required — the default models are paid, though embedding
 and summarising the whole demo corpus costs a fraction of a cent. Get one at
-<https://openrouter.ai/keys>. See *Model choices* for why the free models were rejected.
+<https://openrouter.ai/keys>. See _Model choices_ for why the free models were rejected.
 
 ## API
 
@@ -35,19 +35,19 @@ Every endpoint except `/health`, `/docs` and `/openapi.json` requires
 `Authorization: Bearer $TOKEN`. A missing or wrong token returns `401` before any
 database or AI work happens.
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| POST | `/clients` | Create a client |
-| POST | `/clients/{id}/documents` | Add a document; embeds and summarises it |
-| GET | `/search?q=...` | Search clients and documents |
-| GET | `/health` | Process + database liveness |
+| Method | Path                      | Purpose                                  |
+| ------ | ------------------------- | ---------------------------------------- |
+| POST   | `/clients`                | Create a client                          |
+| POST   | `/clients/{id}/documents` | Add a document; embeds and summarises it |
+| GET    | `/search?q=...`           | Search clients and documents             |
+| GET    | `/health`                 | Process + database liveness              |
 
 ### Create a client
 
 ```bash
 curl -s -X POST localhost:8000/clients \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"first_name":"John","last_name":"Doe","email":"john.doe@neviswealth.com",
+  -d '{"first_name":"John","last_name":"Doe","email":"john.doe@northstar.example",
        "description":"Long-standing private client, balanced growth mandate.",
        "social_links":["https://www.linkedin.com/in/johndoe"]}'
 ```
@@ -62,7 +62,7 @@ curl -s -X POST localhost:8000/clients/$CLIENT_ID/documents \
   -d '{"title":"Utility bill","content":"Electricity utility bill issued by City Power ..."}'
 ```
 
-`201 Created`. The response extends the assignment's `Document` schema with `summary`:
+`201 Created`. The response includes a generated `summary` alongside the document fields:
 
 ```json
 {
@@ -80,10 +80,10 @@ nothing is written — all external calls complete before the database transacti
 
 ### Search
 
-Fuzzy client match — the assignment's first example:
+Fuzzy client match:
 
 ```bash
-curl -s -G localhost:8000/search --data-urlencode 'q=NevisWealth' -H "Authorization: Bearer $TOKEN"
+curl -s -G localhost:8000/search --data-urlencode 'q=Northstar' -H "Authorization: Bearer $TOKEN"
 ```
 
 ```json
@@ -93,8 +93,9 @@ curl -s -G localhost:8000/search --data-urlencode 'q=NevisWealth' -H "Authorizat
     "score": 1.0,
     "client": {
       "id": "d404e22c-b872-4e52-930c-dee1c133aaee",
-      "first_name": "John", "last_name": "Doe",
-      "email": "john.doe@neviswealth.com",
+      "first_name": "John",
+      "last_name": "Doe",
+      "email": "john.doe@northstar.example",
       "description": "Long-standing private client, balanced growth mandate.",
       "social_links": ["https://www.linkedin.com/in/johndoe"]
     }
@@ -102,7 +103,7 @@ curl -s -G localhost:8000/search --data-urlencode 'q=NevisWealth' -H "Authorizat
 ]
 ```
 
-Semantic document match — the assignment's second example. Note that nothing in the
+Semantic document match. Note that nothing in the
 query appears in the document; the match is by meaning:
 
 ```bash
@@ -115,21 +116,26 @@ curl -s -G localhost:8000/search --data-urlencode 'q=address proof' -H "Authoriz
     "result_type": "document",
     "score": 0.3917,
     "matched_excerpt": "Utility bill",
-    "document": { "id": "ef5c0500-...", "title": "Utility bill", "summary": "...", "...": "..." }
+    "document": {
+      "id": "ef5c0500-...",
+      "title": "Utility bill",
+      "summary": "...",
+      "...": "..."
+    }
   }
 ]
 ```
 
 The response is a bare top-level array, as specified. Each element is discriminated by
 `result_type`. `matched_excerpt` shows the title or body passage that actually matched, so
-a caller can see *why* a document was returned.
+a caller can see _why_ a document was returned.
 
 ## Design decisions
 
 ### One database, two search strategies
 
 Client identity fields are short and typo-prone, so they use trigram similarity — this
-matches `NevisWealth` against `john.doe@neviswealth.com` without any embedding call.
+matches `Northstar` against `john.doe@northstar.example` without any embedding call.
 Documents are prose, so they use embeddings. Elasticsearch would solve both, but adds a
 second datastore to synchronise for no gain at this size.
 
@@ -141,14 +147,14 @@ WHERE search_text % $1 OR search_text %> $1 OR search_text LIKE '%' || lower($1)
 ```
 
 `pg_trgm.similarity_threshold` is lowered to `0.15` by the initial migration
-(`ALTER DATABASE ... SET`). At the 0.3 default the `%` operator matched *nothing*:
+(`ALTER DATABASE ... SET`). At the 0.3 default the `%` operator matched _nothing_:
 `search_text` concatenates name, email and description, which dilutes whole-string
 similarity.
 
 This is set on the database rather than per query on purpose. `%` is the only
 index-usable trigram predicate — the explicit `similarity(a, b) > 0.15` form is a
 sequential scan, verified with `EXPLAIN` — and `%` reads that threshold, so the value is a
-*precondition of the query*, not an incidental tweak. Setting it once beside the index it
+_precondition of the query_, not an incidental tweak. Setting it once beside the index it
 partners with means no extra round-trip per search and no way for a future query using `%`
 to silently match nothing because someone forgot to set it.
 
@@ -168,7 +174,7 @@ before documents. `score` communicates rank within a group; it is not a calibrat
 probability.
 
 An initial sweep over 70 documents and 18 labelled queries put the body-passage F1 peak at
-0.40. A real version of the assignment's required example exposed a representation flaw:
+0.40. A representative example exposed a representation flaw:
 `Utility Bill` plus generic billing text scored only 0.211 for `address proof`, while the
 title alone scored 0.392. Titles are therefore embedded independently and the document
 floor is **0.38**, leaving a small margin around that measured acceptance case without
@@ -179,7 +185,7 @@ dropping to the noisy 0.30 band.
 Semantic search needs a live embedding call. If the provider is rate-limited or down,
 `GET /search` still returns `200` with the client results and sets `X-Search-Degraded:
 true`, rather than failing the whole request. The wire format is a bare array, so the
-signal goes in a header. Document *creation* behaves the opposite way — a provider
+signal goes in a header. Document _creation_ behaves the opposite way — a provider
 failure there is a hard error, because storing a document without its embedding would
 leave it permanently unsearchable.
 
@@ -191,7 +197,7 @@ costs nothing.
 The title is embedded as its own chunk so its signal cannot be diluted by unrelated body
 text. The body is split on paragraph boundaries into ~1200-character passages with ~150
 characters of overlap, and each passage is embedded separately. The chosen model has a
-32k-token context, so body chunking is *not* needed to fit the input — it earns its place
+32k-token context, so body chunking is _not_ needed to fit the input — it earns its place
 by producing `matched_excerpt` and by keeping precision on long documents. Chunk hits are
 grouped by document, keeping the best-scoring chunk, so one long document cannot occupy
 several result slots.
@@ -201,23 +207,23 @@ several result slots.
 Both were selected by measurement, not by reputation. Seven embedding models were ranked
 over the same 70-document corpus and 18 labelled queries:
 
-| model | nDCG@10 | top-1 correct |
-| --- | --- | --- |
-| **`openai/text-embedding-3-large`** | **0.961** | **16/16** |
-| `openai/text-embedding-3-small` | 0.954 | 15/15 |
-| `google/gemini-embedding-001` | 0.941 | 14/15 |
-| `nvidia/nemotron-3-embed-1b:free` | 0.908 | 12/15 |
-| `liquid/lfm-2.5-embedding-350m:free` | 0.906 | 15/15 |
-| `qwen/qwen3-embedding-8b` | 0.873 | 13/15 |
-| `baai/bge-m3` | 0.861 | 13/15 |
+| model                                | nDCG@10   | top-1 correct |
+| ------------------------------------ | --------- | ------------- |
+| **`openai/text-embedding-3-large`**  | **0.961** | **16/16**     |
+| `openai/text-embedding-3-small`      | 0.954     | 15/15         |
+| `google/gemini-embedding-001`        | 0.941     | 14/15         |
+| `nvidia/nemotron-3-embed-1b:free`    | 0.908     | 12/15         |
+| `liquid/lfm-2.5-embedding-350m:free` | 0.906     | 15/15         |
+| `qwen/qwen3-embedding-8b`            | 0.873     | 13/15         |
+| `baai/bge-m3`                        | 0.861     | 13/15         |
 
-**Embeddings — `openai/text-embedding-3-large`.** The free candidates rank *acceptably*
+**Embeddings — `openai/text-embedding-3-large`.** The free candidates rank _acceptably_
 but score into a narrow band: Nemotron compresses everything into 0.06–0.36, so no cutoff
 separates matches from topical noise — its best achievable F1 is 0.71 against 0.79 here.
 Embedding all 70 documents costs well under a cent.
 
 **Summaries — `google/gemini-2.5-flash-lite`.** Chosen for reliability, not prose.
-`openrouter/free` is a *router* that picks an arbitrary free model per call; measured over
+`openrouter/free` is a _router_ that picks an arbitrary free model per call; measured over
 six calls it selected a content-safety model and a code model and returned an empty
 message 33% of the time. Pinning to a free NVIDIA endpoint was not enough either — it
 returned `Service temporarily overloaded` on **30% of calls** (14/20), against 10/10 and
@@ -316,36 +322,6 @@ Tests never call OpenRouter — a deterministic fake AI gateway is substituted i
 container while the real UseCase → Service → Repository graph is exercised. Integration
 tests start a throwaway `pgvector/pgvector:pg17` container automatically, so no manual
 setup is needed. Set `TEST_DATABASE_URL` to point at your own database instead.
-
-## Deployment
-
-Compose runs the whole system as one unit, so anything that runs Docker works.
-
-| Option | Notes |
-| --- | --- |
-| **Fly.io** | Builds the Dockerfile directly, managed Postgres, stays up. Best first choice. |
-| **Cloudflare named tunnel** | `cloudflared tunnel --url http://localhost:8000` over local Compose. Free and instant, but only up while your machine is. |
-| **Oracle Cloud Always Free** | Genuinely free and always-on *if* you can get capacity — new accounts frequently hit "Out of host capacity". |
-| **Render** | API and Postgres deploy separately; free Postgres expires after 30 days. |
-
-Expose only the API port. PostgreSQL stays on the internal network. Free tiers change
-often — check current limits before relying on one.
-
-## Using DeepSeek for summaries
-
-The summary client is a plain OpenAI-compatible chat-completions client, so any such
-endpoint works. No code change:
-
-```dotenv
-SUMMARY_BASE_URL=https://api.deepseek.com
-SUMMARY_API_KEY=your-deepseek-key
-SUMMARY_MODEL=deepseek-chat
-```
-
-DeepSeek is an alternative for summaries only — its first-party API exposes no embeddings
-endpoint. There is no automatic fallback between providers: a configured provider either
-works or returns a clearly attributed error, which keeps failures visible instead of
-silently degrading quality.
 
 ## Errors
 
